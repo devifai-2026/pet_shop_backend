@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fun 4 Pets</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Arial", sans-serif;
+        line-height: 1.6;
+        color: #333;
+        background-color: #f8f9fa;
+        padding: 20px 0;
+      }
+
+      .email-container {
+        max-width: 600px;
+        margin: 0 auto;
+        background-color: #ffffff;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        border-radius: 12px;
+        overflow: hidden;
+      }
+
+      .header {
+        background: linear-gradient(135deg, #2c5f5d 0%, #4a8b89 100%);
+        padding: 30px 20px;
+        text-align: center;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .header::before {
+        content: "";
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><circle cx="20" cy="20" r="2" fill="rgba(255,255,255,0.1)"/><circle cx="80" cy="40" r="1.5" fill="rgba(255,255,255,0.1)"/><circle cx="40" cy="80" r="2.5" fill="rgba(255,255,255,0.1)"/><circle cx="90" cy="90" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="10" cy="60" r="1.5" fill="rgba(255,255,255,0.1)"/></svg>')
+          repeat;
+        animation: float 20s infinite linear;
+      }
+
+      @keyframes float {
+        0% {
+          transform: translate(0, 0) rotate(0deg);
+        }
+        100% {
+          transform: translate(-50px, -50px) rotate(360deg);
+        }
+      }
+
+      .logo-container {
+        position: relative;
+        z-index: 2;
+      }
+
+      .logo-img {
+        max-width: 200px;
+        height: auto;
+        margin-bottom: 15px;
+        filter: drop-shadow(0 5px 15px rgba(0, 0, 0, 0.2));
+      }
+
+      .tagline {
+        color: white;
+        font-size: 16px;
+        margin-top: 10px;
+        position: relative;
+        z-index: 2;
+        font-weight: 500;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      }
+
+      .content {
+        padding: 40px 30px;
+      }
+
+      .greeting {
+        font-size: 24px;
+        color: #2c5f5d;
+        margin-bottom: 20px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+      }
+
+      .greeting-icon {
+        font-size: 28px;
+        margin-right: 10px;
+      }
+
+      .message {
+        font-size: 16px;
+        line-height: 1.8;
+        color: #555;
+        margin-bottom: 30px;
+      }
+
+      .cta-button {
+        display: inline-block;
+        background: linear-gradient(45deg, #4caf50, #8bc34a);
+        color: white;
+        text-decoration: none;
+        padding: 15px 35px;
+        border-radius: 30px;
+        font-weight: bold;
+        font-size: 16px;
+        text-align: center;
+        margin: 20px 0;
+        box-shadow: 0 5px 15px rgba(76, 175, 80, 0.3);
+        transition: all 0.3s ease;
+      }
+
+      .cta-button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 25px rgba(76, 175, 80, 0.4);
+      }
+
+      .features {
+        display: flex;
+        justify-content: space-around;
+        margin: 30px 0;
+        flex-wrap: wrap;
+      }
+
+      .feature {
+        text-align: center;
+        flex: 1;
+        min-width: 150px;
+        margin: 10px;
+        padding: 15px;
+        background: #f9f9f9;
+        border-radius: 12px;
+        transition: all 0.3s ease;
+      }
+
+      .feature:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+      }
+
+      .feature-icon {
+        font-size: 40px;
+        margin: 0 auto 15px;
+        display: block;
+      }
+
+      .feature h3 {
+        color: #2c5f5d;
+        font-size: 16px;
+        margin-bottom: 8px;
+      }
+
+      .feature p {
+        color: #777;
+        font-size: 14px;
+      }
+
+      .footer {
+        background: #2c5f5d;
+        color: white;
+        text-align: center;
+        padding: 30px 20px;
+      }
+
+      .social-links {
+        margin: 20px 0;
+      }
+
+      .social-link {
+        display: inline-block;
+        width: 40px;
+        height: 40px;
+        background: rgba(255, 255, 255, 0.2);
+        border-radius: 50%;
+        margin: 0 10px;
+        line-height: 40px;
+        text-decoration: none;
+        color: white;
+        font-size: 18px;
+        transition: all 0.3s ease;
+      }
+
+      .social-link:hover {
+        background: rgba(255, 255, 255, 0.3);
+        transform: translateY(-3px);
+      }
+
+      .footer-text {
+        font-size: 14px;
+        color: #b0b0b0;
+        margin-top: 20px;
+      }
+
+      .divider {
+        height: 3px;
+        background: linear-gradient(90deg, #ff8c42, #4caf50, #2196f3);
+        margin: 0;
+      }
+
+      .paw-decoration {
+        text-align: center;
+        margin: 20px 0;
+      }
+
+      .paw-decoration span {
+        font-size: 30px;
+        color: #ff8c42;
+        opacity: 0.7;
+        margin: 0 5px;
+      }
+
+      @media (max-width: 480px) {
+        .email-container {
+          margin: 10px;
+          border-radius: 8px;
+        }
+
+        .content {
+          padding: 30px 20px;
+        }
+
+        .features {
+          flex-direction: column;
+        }
+
+        .feature {
+          margin: 15px 0;
+        }
+
+        .greeting {
+          font-size: 22px;
+        }
+
+        .logo-img {
+          max-width: 160px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="email-container">
+      <!-- Header -->
+      <header class="header">
+        <div class="logo-container">
+          <img
+            src="https://i.postimg.cc/QxcJvmm0/Logo-for-FUN-4-PETS-2.png"
+            alt="Fun 4 Pets Logo"
+            class="logo-img"
+          />
+          <p class="tagline">Your Pet's Happiness is Our Priority</p>
+        </div>
+      </header>
+
+      <div class="divider"></div>
+
+      <!-- Content -->
+      <main class="content">
+        <h2 class="greeting">
+          <span class="greeting-icon">🐾</span>
+          Hello [CUSTOMER_NAME]!
+        </h2>
+
+        <div class="message">
+          <p>
+            Thank you for choosing Fun 4 Pets! We're excited to be part of your
+            pet's journey to happiness and health.
+          </p>
+
+          <p>[EMAIL_CONTENT]</p>
+
+          <p>
+            At Fun 4 Pets, we believe every pet deserves the best care, love,
+            and fun. That's why we've been serving happy pets and their families
+            since 2020!
+          </p>
+        </div>
+
+        <div class="paw-decoration">
+          <span>🐾</span>
+          <span>🐾</span>
+          <span>🐾</span>
+        </div>
+
+        <!-- Features -->
+        <div class="features">
+          <div class="feature">
+            <div class="feature-icon">🚚</div>
+            <h3>Fast Delivery</h3>
+            <p>Quick & safe delivery to your doorstep</p>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">🏆</div>
+            <h3>Premium Quality</h3>
+            <p>Only the best products for your pets</p>
+          </div>
+          <div class="feature">
+            <div class="feature-icon">🛎️</div>
+            <h3>24/7 Support</h3>
+            <p>We're always here to help you</p>
+          </div>
+        </div>
+
+        <div class="paw-decoration">
+          <span>🐾</span>
+          <span>🐾</span>
+          <span>🐾</span>
+        </div>
+      </main>
+
+      <!-- Footer -->
+      <footer class="footer">
+        <p><strong>Fun 4 Pets</strong> - Since 2020</p>
+
+        <div class="social-links">
+          <a href="[FACEBOOK_LINK]" class="social-link">📘</a>
+          <a href="[INSTAGRAM_LINK]" class="social-link">📷</a>
+          <a href="[TWITTER_LINK]" class="social-link">🐦</a>
+          <a href="[YOUTUBE_LINK]" class="social-link">📺</a>
+        </div>
+
+        <div class="footer-text">
+          <p>📧 Email: [COMPANY_EMAIL] | 📞 Phone: [COMPANY_PHONE]</p>
+          <p>📍 Address: [COMPANY_ADDRESS]</p>
+          <p style="margin-top: 15px; font-size: 12px">
+            You received this email because you're a valued customer of Fun 4
+            Pets.<br />
+            <a href="[UNSUBSCRIBE_LINK]" style="color: #b0b0b0">Unsubscribe</a>
+            |
+            <a href="[PRIVACY_POLICY_LINK]" style="color: #b0b0b0"
+              >Privacy Policy</a
+            >
+          </p>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>
