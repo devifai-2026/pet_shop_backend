@@ -81,6 +81,18 @@ export const createProductInCategory = asyncHandler(async (req, res) => {
   try {
     await validateCategories(req.body);
 
+    if (req.body.variations && req.body.variations.length > 0) {
+      req.body.hasVariations = true;
+      req.body.price = 0;
+      req.body.discountPrice = null;
+
+      req.body.stock = req.body.variations.reduce((total, variation) => {
+        return total + (variation.stock || 0);
+      }, 0);
+    } else {
+      req.body.hasVariations = false;
+    }
+
     const product = await Product.create(req.body);
 
     res
@@ -153,7 +165,6 @@ export const getProductsByCategorySlug = asyncHandler(async (req, res) => {
 
 export const updateProductInCategory = asyncHandler(async (req, res) => {
   try {
-    // Ensure product actually belongs to the category in the URL
     const { categoryId, productId } = req.params;
 
     const product = await Product.findOne({
@@ -166,12 +177,21 @@ export const updateProductInCategory = asyncHandler(async (req, res) => {
         .status(404)
         .json(new ApiResponse(404, null, "Product not found in this category"));
 
-    // If caller wants to move product to another category, validate it
     if (req.body.category_id || req.body.subCategory_id)
       await validateCategories({
         category_id: req.body.category_id || categoryId,
         subCategory_id: req.body.subCategory_id,
       });
+
+    if (req.body.variations && req.body.variations.length > 0) {
+      req.body.hasVariations = true;
+      req.body.price = null;
+      req.body.discountPrice = null;
+
+      req.body.stock = req.body.variations.reduce((total, variation) => {
+        return total + (variation.stock || 0);
+      }, 0);
+    }
 
     const updated = await Product.findByIdAndUpdate(productId, req.body, {
       new: true,
@@ -234,9 +254,19 @@ export const getAllProducts = asyncHandler(async (req, res) => {
 
   // Price range filter
   if (req.query.minPrice || req.query.maxPrice) {
-    filter.price = {};
-    if (req.query.minPrice) filter.price.$gte = Number(req.query.minPrice);
-    if (req.query.maxPrice) filter.price.$lte = Number(req.query.maxPrice);
+    filter.$or = [
+      { price: {} }, // without variations
+      { "variations.price": {} }, // with variations
+    ];
+
+    if (req.query.minPrice) {
+      filter.$or[0].price.$gte = Number(req.query.minPrice);
+      filter.$or[1]["variations.price"].$gte = Number(req.query.minPrice);
+    }
+    if (req.query.maxPrice) {
+      filter.$or[0].price.$lte = Number(req.query.maxPrice);
+      filter.$or[1]["variations.price"].$lte = Number(req.query.maxPrice);
+    }
   }
 
   // Boolean filters
@@ -331,9 +361,31 @@ export const getFilteredProducts = asyncHandler(async (req, res) => {
 
     // Price filter
     if (minPrice || maxPrice) {
-      match.discountPrice = {};
-      if (minPrice) match.discountPrice.$gte = Number(minPrice);
-      if (maxPrice) match.discountPrice.$lte = Number(maxPrice);
+      match.$or = [
+        {
+          $and: [
+            { hasVariations: false }, // without variations
+            { discountPrice: {} },
+          ],
+        },
+        {
+          $and: [
+            { hasVariations: true }, // with variations
+            { "variations.discountPrice": {} },
+          ],
+        },
+      ];
+
+      if (minPrice) {
+        match.$or[0].$and[1].discountPrice.$gte = Number(minPrice);
+        match.$or[1].$and[1]["variations.discountPrice"].$gte =
+          Number(minPrice);
+      }
+      if (maxPrice) {
+        match.$or[0].$and[1].discountPrice.$lte = Number(maxPrice);
+        match.$or[1].$and[1]["variations.discountPrice"].$lte =
+          Number(maxPrice);
+      }
     }
 
     // Additional filters

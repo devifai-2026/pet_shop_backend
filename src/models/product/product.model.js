@@ -2,6 +2,7 @@ import mongoose from "mongoose";
 import pharmacyProductSchema from "./pharmacy.model.js";
 import vaccinationSchema from "./vaccination.model.js";
 import healthInsuranceSchema from "./healthInsurance.model.js";
+import variationSchema from "./variationModel.js";
 
 const productSchema = new mongoose.Schema(
   {
@@ -26,7 +27,13 @@ const productSchema = new mongoose.Schema(
       index: true,
     },
 
-    price: { type: Number, required: true },
+    price: {
+      type: Number,
+      required: function () {
+        return !this.hasVariations; // price is required if there are no variations
+      },
+      default: null,
+    },
     discountPrice: Number,
     stock: { type: Number, default: 0 },
     size: String,
@@ -67,6 +74,16 @@ const productSchema = new mongoose.Schema(
 
     status: { type: Boolean, default: true },
     isDeleted: { type: Boolean, default: false },
+
+    variations: {
+      type: [variationSchema],
+      default: [],
+    },
+
+    hasVariations: {
+      type: Boolean,
+      default: false,
+    },
   },
   { timestamps: true }
 );
