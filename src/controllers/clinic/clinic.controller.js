@@ -156,7 +156,6 @@ export const getAppointmentById = asyncHandler(async (req, res) => {
   }
 });
 
-
 // @access  Private (Admin)
 export const updateAppointmentStatus = asyncHandler(async (req, res) => {
   const { status } = req.body;

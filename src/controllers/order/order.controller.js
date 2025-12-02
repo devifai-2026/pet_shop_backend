@@ -271,6 +271,7 @@ export const createOrder = asyncHandler(async (req, res) => {
         html: emailHtml,
       });
 
+      session.endSession(); // session end 
       return res
         .status(201)
         .json(new ApiResponse(201, orderDoc, "Order created successfully"));
@@ -286,6 +287,7 @@ export const createOrder = asyncHandler(async (req, res) => {
 
       if (!paymentResult.success) {
         await session.abortTransaction();
+        session.endSession(); // session end 
         return res
           .status(400)
           .json(
@@ -299,12 +301,14 @@ export const createOrder = asyncHandler(async (req, res) => {
 
       if (!paymentResult.paymentUrl) {
         await session.abortTransaction();
+        session.endSession(); // session end 
         return res
           .status(500)
           .json(new ApiResponse(500, null, "Failed to generate payment URL"));
       }
 
       await session.commitTransaction();
+      session.endSession(); // session end
       return res.status(200).json(
         new ApiResponse(
           200,
@@ -317,8 +321,12 @@ export const createOrder = asyncHandler(async (req, res) => {
       );
     }
   } catch (error) {
-    await session.abortTransaction();
+    // Error handling
+    if (session.transaction.isActive) {
+      await session.abortTransaction();
+    }
     console.error("Order creation error:", error);
+    session.endSession(); 
 
     if (error.name === "MongoError" && error.code === 11000) {
       return res
@@ -335,8 +343,6 @@ export const createOrder = asyncHandler(async (req, res) => {
     return res
       .status(500)
       .json(new ApiResponse(500, null, "Internal server error"));
-  } finally {
-    session.endSession();
   }
 });
 
