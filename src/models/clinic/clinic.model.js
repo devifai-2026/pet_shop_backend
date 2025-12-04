@@ -1,24 +1,14 @@
 import mongoose from "mongoose";
 
 const serviceTypes = [
-  {
-    name: "Consultation",
-  },
-  {
-    name: "Vaccination",
-  },
-  {
-    name: "Grooming",
-  },
-  {
-    name: "Deworming",
-  },
-  {
-    name: "Surgery",
-  },
-  {
-    name: "Diagnostics",
-  },
+  "Basic Bath & Dry",
+  "Full Body Bath",
+  "Hair Trimming Package",
+  "Full Grooming Package",
+  "Spa & De-Shedding Package",
+  "Nail Clipping & Ear Cleaning",
+  "Paw & Hygiene Care",
+  "Others",
 ];
 
 const clinicAppointmentSchema = new mongoose.Schema(
@@ -28,6 +18,7 @@ const clinicAppointmentSchema = new mongoose.Schema(
       type: String,
       required: [true, "Full name is required"],
       trim: true,
+      minlength: [2, "Name must be at least 2 characters"],
     },
     mobileNumber: {
       type: String,
@@ -47,12 +38,20 @@ const clinicAppointmentSchema = new mongoose.Schema(
     serviceType: {
       type: String,
       required: [true, "Service type is required"],
-      enum: serviceTypes.map((service) => service.name),
+      enum: {
+        values: serviceTypes,
+        message: "{VALUE} is not a valid service type",
+      },
     },
     preferredDate: {
       type: Date,
       required: [true, "Preferred date is required"],
-      min: Date.now,
+      validate: {
+        validator: function (value) {
+          return value > Date.now();
+        },
+        message: "Preferred date must be in the future",
+      },
     },
 
     // System Fields
@@ -77,6 +76,25 @@ const clinicAppointmentSchema = new mongoose.Schema(
 clinicAppointmentSchema.index({ preferredDate: 1 });
 clinicAppointmentSchema.index({ status: 1 });
 clinicAppointmentSchema.index({ email: 1 });
+
+// Virtual for formatted date
+clinicAppointmentSchema.virtual("formattedDate").get(function () {
+  return this.preferredDate.toLocaleDateString("en-US", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
+});
+
+// Pre-save validation for date
+clinicAppointmentSchema.pre("save", function (next) {
+  // Ensure preferredDate is a Date object
+  if (this.preferredDate && typeof this.preferredDate === "string") {
+    this.preferredDate = new Date(this.preferredDate);
+  }
+  next();
+});
 
 const ClinicAppointment = mongoose.model(
   "ClinicAppointment",
