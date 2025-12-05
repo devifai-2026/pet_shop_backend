@@ -316,6 +316,7 @@ export const getAllProducts = asyncHandler(async (req, res) => {
   );
 });
 
+
 export const getFilteredProducts = asyncHandler(async (req, res) => {
   try {
     const {
@@ -330,6 +331,10 @@ export const getFilteredProducts = asyncHandler(async (req, res) => {
       usage,
       page = 1,
       limit = 10,
+      sortBy = "popularity", // Add sortBy parameter
+      brands, // Array of brands
+      types, // Array of types
+      species, // Array of species
     } = req.query;
 
     const match = { isDeleted: false, status: true };
@@ -339,6 +344,10 @@ export const getFilteredProducts = asyncHandler(async (req, res) => {
         { name: { $regex: search, $options: "i" } },
         { description: { $regex: search, $options: "i" } },
         { tags: { $regex: search, $options: "i" } },
+        { "filterAttributes.brand": { $regex: search, $options: "i" } },
+        { "filterAttributes.type": { $regex: search, $options: "i" } },
+        { "pharmacyDetails.manufacturer": { $regex: search, $options: "i" } },
+        { breed: { $regex: search, $options: "i" } },
       ];
     }
 
@@ -365,16 +374,10 @@ export const getFilteredProducts = asyncHandler(async (req, res) => {
     if (minPrice || maxPrice) {
       match.$or = [
         {
-          $and: [
-            { hasVariations: false }, // without variations
-            { discountPrice: {} },
-          ],
+          $and: [{ hasVariations: false }, { discountPrice: {} }],
         },
         {
-          $and: [
-            { hasVariations: true }, // with variations
-            { "variations.discountPrice": {} },
-          ],
+          $and: [{ hasVariations: true }, { "variations.discountPrice": {} }],
         },
       ];
 
@@ -390,24 +393,60 @@ export const getFilteredProducts = asyncHandler(async (req, res) => {
       }
     }
 
-    // Additional filters
+    // Handle array filters (brands, types, species)
+    if (brands) {
+      if (typeof brands === "string") {
+        match["filterAttributes.brand"] = brands;
+      } else if (Array.isArray(brands) && brands.length > 0) {
+        match["filterAttributes.brand"] = { $in: brands };
+      }
+    }
+
+    if (types) {
+      if (typeof types === "string") {
+        match["filterAttributes.type"] = types;
+      } else if (Array.isArray(types) && types.length > 0) {
+        match["filterAttributes.type"] = { $in: types };
+      }
+    }
+
+    if (species) {
+      if (typeof species === "string") {
+        match["filterAttributes.species"] = species;
+      } else if (Array.isArray(species) && species.length > 0) {
+        match["filterAttributes.species"] = { $in: species };
+      }
+    }
+
+    // Handle single value filters (for backward compatibility)
     if (brand) match["filterAttributes.brand"] = brand;
     if (type) match["filterAttributes.type"] = type;
     if (usage) match["filterAttributes.usage"] = usage;
 
     const skip = (Number(page) - 1) * Number(limit);
 
+    // Sort logic
+    let sortStage = { $sort: { createdAt: -1 } }; // Default sort
+
+    if (sortBy === "priceLowToHigh") {
+      sortStage = { $sort: { discountPrice: 1 } };
+    } else if (sortBy === "priceHighToLow") {
+      sortStage = { $sort: { discountPrice: -1 } };
+    } else if (sortBy === "new") {
+      sortStage = { $sort: { createdAt: -1 } };
+    } else if (sortBy === "discount") {
+      sortStage = { $sort: { discountPercentage: -1 } };
+    } else if (sortBy === "popularity") {
+      // You can add popularity logic here (based on sales, views, etc.)
+      sortStage = { $sort: { createdAt: -1 } };
+    }
+
     // Aggregation pipeline
     const aggregationPipeline = [
       { $match: match },
-
       {
         $facet: {
-          products: [
-            { $sort: { createdAt: -1 } },
-            { $skip: skip },
-            { $limit: Number(limit) },
-          ],
+          products: [sortStage, { $skip: skip }, { $limit: Number(limit) }],
 
           totalCount: [{ $count: "count" }],
 
@@ -482,7 +521,9 @@ export const getFilteredProducts = asyncHandler(async (req, res) => {
     );
   } catch (error) {
     console.error("Filter API Error:", error);
-    return handleMongoErrors(error, res);
+    return res
+      .status(500)
+      .json(new ApiResponse(500, null, "Failed to fetch products"));
   }
 });
 
