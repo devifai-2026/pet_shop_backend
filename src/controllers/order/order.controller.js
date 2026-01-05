@@ -796,6 +796,10 @@ export const getAllOrders = asyncHandler(async (req, res) => {
       limit: parseInt(limit),
       sort: { createdAt: -1 },
       lean: true,
+      populate: {
+        path: 'user_id',
+        select: 'email name phone',
+      },
     };
 
     const orders = await Order.paginate(filter, options);

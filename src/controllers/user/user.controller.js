@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 import ApiResponse from "../../utils/ApiResponse.js";
 import User from "../../models/user/user.model.js";
+import Order from "../../models/order/order.model.js";
 import sendEmail from "../../services/mailer.js";
 import { generateEmailHtml } from "./../../services/templateUtils.js";
 
@@ -379,4 +380,163 @@ export const editProfile = asyncHandler(async (req, res) => {
   }
 
   res.json(new ApiResponse(200, user, "Profile updated successfully"));
+});
+
+// Get All Users (Admin/Staff only - add authentication middleware in routes)
+// Updated getAllUsers function in user.controller.js
+export const getAllUsers = asyncHandler(async (req, res) => {
+  const {
+    page = 1,
+    limit = 10,
+    search = "",
+    sortBy = "createdAt",
+    sortOrder = "desc",
+    startDate,
+    endDate,
+  } = req.query;
+
+  // Convert page and limit to numbers
+  const pageNum = parseInt(page);
+  const limitNum = parseInt(limit);
+  const skip = (pageNum - 1) * limitNum;
+
+  // Build query
+  const query = {};
+
+  if (search) {
+    query.$or = [
+      { name: { $regex: search, $options: "i" } },
+      { email: { $regex: search, $options: "i" } },
+      { phone: { $regex: search, $options: "i" } },
+    ];
+  }
+
+  // Date range filter
+  if (startDate || endDate) {
+    query.createdAt = {};
+    if (startDate) {
+      query.createdAt.$gte = new Date(startDate);
+    }
+    if (endDate) {
+      query.createdAt.$lte = new Date(endDate);
+    }
+  }
+
+  // Sort configuration
+  const sortConfig = {};
+  sortConfig[sortBy] = sortOrder === "desc" ? -1 : 1;
+
+  try {
+    // Get total count
+    const totalDocs = await User.countDocuments(query);
+
+    // Get paginated users
+    const users = await User.find(query)
+      .select("-password -otp -otpExpires")
+      .sort(sortConfig)
+      .skip(skip)
+      .limit(limitNum);
+
+    // Calculate pagination info
+    const totalPages = Math.ceil(totalDocs / limitNum);
+    const hasNextPage = pageNum < totalPages;
+    const hasPrevPage = pageNum > 1;
+
+    return res.json(
+      new ApiResponse(
+        200,
+        {
+          users,
+          pagination: {
+            totalDocs,
+            totalPages,
+            page: pageNum,
+            limit: limitNum,
+            hasNextPage,
+            hasPrevPage,
+          },
+        },
+        "Users fetched successfully"
+      )
+    );
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    return res
+      .status(500)
+      .json(new ApiResponse(500, null, "Error fetching users"));
+  }
+});
+
+// Get User by ID (with order details)
+export const getUserById = asyncHandler(async (req, res) => {
+  const { userId } = req.params;
+
+  // Validate userId format
+  if (!userId.match(/^[0-9a-fA-F]{24}$/)) {
+    return res
+      .status(400)
+      .json(new ApiResponse(400, null, "Invalid user ID format"));
+  }
+
+  // Find user and exclude sensitive fields
+  const user = await User.findById(userId).select("-password -otp -otpExpires");
+
+  if (!user) {
+    return res.status(404).json(new ApiResponse(404, null, "User not found"));
+  }
+
+  // Get user's orders with populated product details
+  const orders = await Order.find({ user_id: userId })
+    .populate({
+      path: "orderItems.product_id",
+      select: "name price images",
+    })
+    .sort({ createdAt: -1 });
+
+  // Format order data to include product details and pricing
+  const formattedOrders = orders.map((order) => ({
+    _id: order._id,
+    orderNumber: order.orderNumber,
+    orderDate: order.createdAt,
+    status: order.orderStatus,
+    paymentStatus: order.paymentStatus,
+    totalAmount: order.totalAmount,
+    items: order.orderItems.map((item) => {
+      const product = item.product_id || {};
+      return {
+        productId: product._id,
+        productName: product.name || "Product not found",
+        quantity: item.quantity,
+        price: item.price,
+        totalPrice: item.quantity * item.price,
+        image: product.images?.[0] || null,
+      };
+    }),
+    shippingAddress: order.shippingAddress,
+    paymentMethod: order.paymentMethod,
+  }));
+
+  // Calculate order statistics
+  const orderStats = {
+    totalOrders: orders.length,
+    totalSpent: orders.reduce((sum, order) => sum + order.totalAmount, 0),
+    pendingOrders: orders.filter((order) => order.orderStatus === "Processing")
+      .length,
+    completedOrders: orders.filter((order) => order.orderStatus === "Delivered")
+      .length,
+  };
+
+  return res.json(
+    new ApiResponse(
+      200,
+      {
+        user: {
+          ...user.toObject(),
+          orderStats,
+          orders: formattedOrders,
+        },
+      },
+      "User details fetched successfully"
+    )
+  );
 });

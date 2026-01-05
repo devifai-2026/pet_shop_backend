@@ -77,7 +77,6 @@ const validateCategories = async ({
   return true;
 };
 
-// console.log("hi")
 
 export const createProductInCategory = asyncHandler(async (req, res) => {
   try {
