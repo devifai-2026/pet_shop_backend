@@ -555,10 +555,10 @@ export const getProductById = asyncHandler(async (req, res) => {
       .json(new ApiResponse(400, null, "Invalid product ID"));
 
   const product = await Product.findById(productId)
-    .populate("category_id subCategory_id")
+    .populate("category_id subCategory_id childSubCategory_id")
     .populate({
       path: "relatedProducts",
-      populate: { path: "category_id subCategory_id" },
+      populate: { path: "category_id subCategory_id childSubCategory_id" },
     })
     .lean();
 
