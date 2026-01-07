@@ -82,14 +82,26 @@ export const createProductInCategory = asyncHandler(async (req, res) => {
   try {
     await validateCategories(req.body);
 
+    // Handle variation images if they exist
     if (req.body.variations && req.body.variations.length > 0) {
       req.body.hasVariations = true;
       req.body.price = 0;
       req.body.discountPrice = null;
 
+      // Calculate total stock
       req.body.stock = req.body.variations.reduce((total, variation) => {
         return total + (variation.stock || 0);
       }, 0);
+
+      // Process variation images if they're base64 strings (convert to URLs)
+      // This assumes you have middleware or frontend that uploads images to Cloudinary/CDN
+      for (let variation of req.body.variations) {
+        if (variation.images && Array.isArray(variation.images)) {
+          // If images are base64 strings, you might want to process them here
+          // Or handle it in a separate middleware
+          variation.images = variation.images.filter(img => img); // Remove empty/null images
+        }
+      }
     } else {
       req.body.hasVariations = false;
     }
@@ -189,9 +201,17 @@ export const updateProductInCategory = asyncHandler(async (req, res) => {
       req.body.price = null;
       req.body.discountPrice = null;
 
+      // Calculate total stock
       req.body.stock = req.body.variations.reduce((total, variation) => {
         return total + (variation.stock || 0);
       }, 0);
+
+      // Process variation images
+      for (let variation of req.body.variations) {
+        if (variation.images && Array.isArray(variation.images)) {
+          variation.images = variation.images.filter(img => img); // Remove empty/null images
+        }
+      }
     }
 
     const updated = await Product.findByIdAndUpdate(productId, req.body, {

@@ -11,11 +11,11 @@ const homeCarouselSchema = new mongoose.Schema(
         },
         buttonText: {
           type: String,
-          required: true,
+          // required: true,
         },
         buttonLink: {
           type: String,
-          required: true,
+          // required: true,
         },
         altText: String,
       },

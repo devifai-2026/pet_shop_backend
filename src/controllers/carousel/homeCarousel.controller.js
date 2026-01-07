@@ -17,22 +17,22 @@ export const createOrUpdateHomeCarousel = asyncHandler(async (req, res) => {
   }
 
   try {
-    // Validate required fields for each item
-    const isValid = carouselItems.every(
-      (item) => item.imageUrl && item.buttonText && item.buttonLink
-    );
+    // // Validate required fields for each item
+    // const isValid = carouselItems.every(
+    //   (item) => item.imageUrl && item.buttonText && item.buttonLink
+    // );
 
-    if (!isValid) {
-      return res
-        .status(400)
-        .json(
-          new ApiResponse(
-            400,
-            null,
-            "Each carousel item must have imageUrl, buttonText and buttonLink"
-          )
-        );
-    }
+    // if (!isValid) {
+    //   return res
+    //     .status(400)
+    //     .json(
+    //       new ApiResponse(
+    //         400,
+    //         null,
+    //         "Each carousel item must have imageUrl, buttonText and buttonLink"
+    //       )
+    //     );
+    // }
 
     // There should be only one carousel configuration
     const existingCarousel = await HomeCarousel.findOne();
