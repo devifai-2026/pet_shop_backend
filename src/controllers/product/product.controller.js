@@ -21,7 +21,7 @@ const validateCategories = async ({
     throw new ApiResponse(404, null, "Category not found");
   }
 
-  // Validate subCategory if provided
+  // Validate subCategory only if provided
   if (subCategory_id) {
     if (!mongoose.Types.ObjectId.isValid(subCategory_id)) {
       throw new ApiResponse(400, null, "Invalid subCategory_id");
@@ -41,7 +41,7 @@ const validateCategories = async ({
       );
     }
 
-    // Validate childSubCategory if provided
+    // Validate childSubCategory only if provided
     if (childSubCategory_id) {
       if (!mongoose.Types.ObjectId.isValid(childSubCategory_id)) {
         throw new ApiResponse(400, null, "Invalid childSubCategory_id");
@@ -72,15 +72,35 @@ const validateCategories = async ({
         );
       }
     }
+  } else {
+    // If no subCategory is provided, childSubCategory should also not be provided
+    if (childSubCategory_id) {
+      throw new ApiResponse(
+        400,
+        null,
+        "childSubCategory_id cannot be provided without subCategory_id"
+      );
+    }
   }
 
   return true;
 };
 
-
 export const createProductInCategory = asyncHandler(async (req, res) => {
   try {
-    await validateCategories(req.body);
+    // Clean up category fields - set to null if empty strings
+    const categoryFields = {
+      category_id: req.body.category_id,
+      subCategory_id: req.body.subCategory_id || null,
+      childSubCategory_id: req.body.childSubCategory_id || null
+    };
+
+    // Validate categories
+    await validateCategories(categoryFields);
+
+    // Update the request body with cleaned category fields
+    req.body.subCategory_id = categoryFields.subCategory_id;
+    req.body.childSubCategory_id = categoryFields.childSubCategory_id;
 
     // Handle variation images if they exist
     if (req.body.variations && req.body.variations.length > 0) {
@@ -94,11 +114,8 @@ export const createProductInCategory = asyncHandler(async (req, res) => {
       }, 0);
 
       // Process variation images if they're base64 strings (convert to URLs)
-      // This assumes you have middleware or frontend that uploads images to Cloudinary/CDN
       for (let variation of req.body.variations) {
         if (variation.images && Array.isArray(variation.images)) {
-          // If images are base64 strings, you might want to process them here
-          // Or handle it in a separate middleware
           variation.images = variation.images.filter(img => img); // Remove empty/null images
         }
       }
@@ -233,8 +250,11 @@ export const getAllProducts = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page) || 1;
   const skip = (page - 1) * limit;
 
+ 
+  const { ObjectId } = mongoose.Types;
+
   // Build filter object
-  const filter = { isDeleted: false }; // Only show non-deleted products by default
+  const filter = { isDeleted: false };
 
   // Search by product name or description
   if (req.query.search && req.query.search.trim() !== "") {
@@ -246,79 +266,289 @@ export const getAllProducts = asyncHandler(async (req, res) => {
     ];
   }
 
-  // Category filters
-  if (req.query.category_id && req.query.category_id.trim() !== "") {
-    filter.category_id = req.query.category_id;
+  // Category filters - convert string to ObjectId
+  if (req.query.category && req.query.category.trim() !== "") {
+    // Check if it's a valid ObjectId
+    if (ObjectId.isValid(req.query.category)) {
+      filter.category_id = new ObjectId(req.query.category);
+    } else {
+      // If not a valid ObjectId, try to find category by name
+      const category = await Category.findOne({ 
+        name: { $regex: req.query.category, $options: "i" } 
+      });
+      if (category) {
+        filter.category_id = category._id;
+      }
+    }
   }
 
   if (req.query.subCategory_id && req.query.subCategory_id.trim() !== "") {
-    filter.subCategory_id = req.query.subCategory_id;
-  }
-
-  if (
-    req.query.childSubCategory_id &&
-    req.query.childSubCategory_id.trim() !== ""
-  ) {
-    filter.childSubCategory_id = req.query.childSubCategory_id;
-  }
-
-  // Other filters
-  if (req.query.breed && req.query.breed.trim() !== "") {
-    filter.breed = { $regex: req.query.breed, $options: "i" };
-  }
-  if (req.query.gender && req.query.gender.trim() !== "") {
-    filter.gender = req.query.gender;
-  }
-  if (req.query.color && req.query.color.trim() !== "") {
-    filter.color = { $regex: req.query.color, $options: "i" };
-  }
-
-  // Price range filter
-  if (req.query.minPrice || req.query.maxPrice) {
-    filter.$or = [
-      { price: {} }, // without variations
-      { "variations.price": {} }, // with variations
-    ];
-
-    if (req.query.minPrice) {
-      filter.$or[0].price.$gte = Number(req.query.minPrice);
-      filter.$or[1]["variations.price"].$gte = Number(req.query.minPrice);
+    if (ObjectId.isValid(req.query.subCategory_id)) {
+      filter.subCategory_id = new ObjectId(req.query.subCategory_id);
     }
-    if (req.query.maxPrice) {
-      filter.$or[0].price.$lte = Number(req.query.maxPrice);
-      filter.$or[1]["variations.price"].$lte = Number(req.query.maxPrice);
+  }
+
+  if (req.query.childSubCategory_id && req.query.childSubCategory_id.trim() !== "") {
+    if (ObjectId.isValid(req.query.childSubCategory_id)) {
+      filter.childSubCategory_id = new ObjectId(req.query.childSubCategory_id);
     }
+  }
+
+  // Status filter
+  if (req.query.status !== undefined) {
+    filter.status = req.query.status === "true";
+  }
+
+  // Minimum rating filter
+  if (req.query.minRating) {
+    const minRating = Number(req.query.minRating);
+    filter.rating = { $gte: minRating };
   }
 
   // Boolean filters
   if (req.query.bestSeller === "true") filter.bestSeller = true;
   if (req.query.popular === "true") filter.popular = true;
   if (req.query.onSale === "true") filter.onSale = true;
-  if (req.query.status === "false") filter.status = false;
 
-  // Search by category name (if you want to search by category name instead of ID)
-  if (req.query.categoryName && req.query.categoryName.trim() !== "") {
-    const categories = await Category.find({
-      name: { $regex: req.query.categoryName, $options: "i" },
-    }).select("_id");
+  // Price range filter
+  let priceConditions = null;
+  if (req.query.minPrice || req.query.maxPrice) {
+    const minPrice = req.query.minPrice ? Number(req.query.minPrice) : 0;
+    const maxPrice = req.query.maxPrice ? Number(req.query.maxPrice) : Infinity;
+    
+    // For products without variations
+    const nonVariationCondition = {
+      $and: [
+        { hasVariations: false },
+        { price: {} }
+      ]
+    };
+    
+    if (req.query.minPrice) {
+      nonVariationCondition.$and[1].price.$gte = minPrice;
+    }
+    if (req.query.maxPrice) {
+      nonVariationCondition.$and[1].price.$lte = maxPrice;
+    }
+    
+    // For products with variations
+    const variationCondition = {
+      $and: [
+        { hasVariations: true },
+        { variations: { $elemMatch: {} } }
+      ]
+    };
+    
+    const elemMatchCondition = {};
+    if (req.query.minPrice) {
+      elemMatchCondition.price = { $gte: minPrice };
+    }
+    if (req.query.maxPrice) {
+      if (elemMatchCondition.price) {
+        elemMatchCondition.price.$lte = maxPrice;
+      } else {
+        elemMatchCondition.price = { $lte: maxPrice };
+      }
+    }
+    
+    variationCondition.$and[1].variations.$elemMatch = elemMatchCondition;
+    
+    priceConditions = [nonVariationCondition, variationCondition];
+  }
 
-    if (categories.length > 0) {
-      filter.category_id = { $in: categories.map((c) => c._id) };
+  // Stock status filter
+  let stockConditions = null;
+  if (req.query.inStock !== undefined) {
+    const inStock = req.query.inStock === "true";
+    
+    if (inStock) {
+      stockConditions = [
+        // Products without variations
+        {
+          $and: [
+            { hasVariations: false },
+            { stock: { $gt: 0 } }
+          ]
+        },
+        // Products with variations
+        {
+          $and: [
+            { hasVariations: true },
+            { "variations.stock": { $gt: 0 } }
+          ]
+        }
+      ];
     } else {
-      // If no matching categories found, return empty result
-      filter.category_id = { $in: [] };
+      stockConditions = [
+        // Products without variations
+        {
+          $and: [
+            { hasVariations: false },
+            { stock: { $lte: 0 } }
+          ]
+        },
+        // Products with variations
+        {
+          $and: [
+            { hasVariations: true },
+            { "variations.stock": { $lte: 0 } }
+          ]
+        }
+      ];
     }
   }
 
-  // Execute query
-  const [products, total] = await Promise.all([
-    Product.find(filter)
-      .populate("category_id subCategory_id childSubCategory_id")
-      .skip(skip)
-      .limit(limit)
-      .lean(),
-    Product.countDocuments(filter),
-  ]);
+  // Combine all conditions
+  const allConditions = [];
+  
+  // Add category filters if they exist
+  if (Object.keys(filter).length > 1 || (Object.keys(filter).length === 1 && !filter.isDeleted)) {
+    // Exclude isDeleted from allConditions if it's the only filter
+    const filterCopy = { ...filter };
+    if (filterCopy.isDeleted && Object.keys(filterCopy).length === 1) {
+      // Don't add isDeleted alone
+    } else {
+      allConditions.push(filterCopy);
+    }
+  }
+  
+  // Add price conditions if they exist
+  if (priceConditions) {
+    allConditions.push({ $or: priceConditions });
+  }
+  
+  // Add stock conditions if they exist
+  if (stockConditions) {
+    allConditions.push({ $or: stockConditions });
+  }
+
+  // Build final filter
+  let finalFilter = { isDeleted: false }; // Always include isDeleted
+  
+  if (allConditions.length === 1) {
+    finalFilter = { ...finalFilter, ...allConditions[0] };
+  } else if (allConditions.length > 1) {
+    finalFilter.$and = allConditions;
+    // Add isDeleted to AND conditions
+    finalFilter.$and.unshift({ isDeleted: false });
+  }
+
+  console.log("Final filter object:", JSON.stringify(finalFilter, null, 2));
+
+  // Execute count query first
+  const total = await Product.countDocuments(finalFilter);
+
+  // Handle sorting with aggregation pipeline
+  let aggregatePipeline = [];
+  
+  // Add match stage with final filter
+  aggregatePipeline.push({ $match: finalFilter });
+  
+  // Add lookup for categories
+  aggregatePipeline.push(
+    {
+      $lookup: {
+        from: "categories",
+        localField: "category_id",
+        foreignField: "_id",
+        as: "category_id"
+      }
+    },
+    {
+      $lookup: {
+        from: "subcategories",
+        localField: "subCategory_id",
+        foreignField: "_id",
+        as: "subCategory_id"
+      }
+    },
+    {
+      $lookup: {
+        from: "childsubcategories",
+        localField: "childSubCategory_id",
+        foreignField: "_id",
+        as: "childSubCategory_id"
+      }
+    },
+    {
+      $unwind: {
+        path: "$category_id",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    {
+      $unwind: {
+        path: "$subCategory_id",
+        preserveNullAndEmptyArrays: true
+      }
+    },
+    {
+      $unwind: {
+        path: "$childSubCategory_id",
+        preserveNullAndEmptyArrays: true
+      }
+    }
+  );
+  
+  // Add calculated price field for sorting
+  aggregatePipeline.push({
+    $addFields: {
+      // Calculate effective price for sorting and display
+      effectivePrice: {
+        $cond: {
+          if: { 
+            $and: [
+              { $eq: ["$hasVariations", true] }, 
+              { $gt: [{ $size: "$variations" }, 0] }
+            ] 
+          },
+          then: {
+            $min: "$variations.price"
+          },
+          else: "$price"
+        }
+      },
+      // Ensure rating exists
+      effectiveRating: {
+        $ifNull: ["$rating", 0]
+      }
+    }
+  });
+
+  // Apply sorting based on sort parameter
+  switch (req.query.sort) {
+    case "oldest":
+      aggregatePipeline.push({ $sort: { createdAt: 1 } });
+      break;
+    case "price_low":
+      aggregatePipeline.push({ $sort: { effectivePrice: 1 } });
+      break;
+    case "price_high":
+      aggregatePipeline.push({ $sort: { effectivePrice: -1 } });
+      break;
+    case "name_asc":
+      aggregatePipeline.push({ $sort: { name: 1 } });
+      break;
+    case "name_desc":
+      aggregatePipeline.push({ $sort: { name: -1 } });
+      break;
+    case "rating":
+      aggregatePipeline.push({ $sort: { effectiveRating: -1 } });
+      break;
+    default: // "newest"
+      aggregatePipeline.push({ $sort: { createdAt: -1 } });
+  }
+
+  // Add pagination
+  aggregatePipeline.push(
+    { $skip: skip },
+    { $limit: limit }
+  );
+
+  // Execute aggregate query
+  const products = await Product.aggregate(aggregatePipeline);
+
+  console.log(`Found ${products.length} products out of ${total}`);
 
   res.json(
     new ApiResponse(
