@@ -246,72 +246,70 @@ export const updateProductInCategory = asyncHandler(async (req, res) => {
 });
 
 export const getAllProducts = asyncHandler(async (req, res) => {
-  const limit = parseInt(req.query.limit) || 20;
-  const page = parseInt(req.query.page) || 1;
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 20;
   const skip = (page - 1) * limit;
 
- 
   const { ObjectId } = mongoose.Types;
-
-  // Build filter object
-  const filter = { isDeleted: false };
+  
+  // start with base match stage
+  const matchStage = { isDeleted: false };
 
   // Search by product name or description
   if (req.query.search && req.query.search.trim() !== "") {
     const searchRegex = { $regex: req.query.search, $options: "i" };
-    filter.$or = [
+    matchStage.$or = [
       { name: searchRegex },
       { description: searchRegex },
       { tags: searchRegex },
     ];
   }
 
-  // Category filters - convert string to ObjectId
+  // Category filters
   if (req.query.category && req.query.category.trim() !== "") {
-    // Check if it's a valid ObjectId
     if (ObjectId.isValid(req.query.category)) {
-      filter.category_id = new ObjectId(req.query.category);
+      matchStage.category_id = new ObjectId(req.query.category);
     } else {
-      // If not a valid ObjectId, try to find category by name
       const category = await Category.findOne({ 
         name: { $regex: req.query.category, $options: "i" } 
       });
       if (category) {
-        filter.category_id = category._id;
+        matchStage.category_id = category._id;
       }
     }
   }
 
   if (req.query.subCategory_id && req.query.subCategory_id.trim() !== "") {
     if (ObjectId.isValid(req.query.subCategory_id)) {
-      filter.subCategory_id = new ObjectId(req.query.subCategory_id);
+      matchStage.subCategory_id = new ObjectId(req.query.subCategory_id);
     }
   }
 
   if (req.query.childSubCategory_id && req.query.childSubCategory_id.trim() !== "") {
     if (ObjectId.isValid(req.query.childSubCategory_id)) {
-      filter.childSubCategory_id = new ObjectId(req.query.childSubCategory_id);
+      matchStage.childSubCategory_id = new ObjectId(req.query.childSubCategory_id);
     }
   }
 
   // Status filter
   if (req.query.status !== undefined) {
-    filter.status = req.query.status === "true";
+    matchStage.status = req.query.status === "true";
   }
 
   // Minimum rating filter
   if (req.query.minRating) {
-    const minRating = Number(req.query.minRating);
-    filter.rating = { $gte: minRating };
+    matchStage.rating = { $gte: Number(req.query.minRating) };
   }
 
   // Boolean filters
-  if (req.query.bestSeller === "true") filter.bestSeller = true;
-  if (req.query.popular === "true") filter.popular = true;
-  if (req.query.onSale === "true") filter.onSale = true;
+  if (req.query.bestSeller === "true") matchStage.bestSeller = true;
+  if (req.query.popular === "true") matchStage.popular = true;
+  if (req.query.onSale === "true") matchStage.onSale = true;
+
+  // Array for complex AND conditions (Price, Stock)
+  const complexConditions = [];
 
   // Price range filter
-  let priceConditions = null;
   if (req.query.minPrice || req.query.maxPrice) {
     const minPrice = req.query.minPrice ? Number(req.query.minPrice) : 0;
     const maxPrice = req.query.maxPrice ? Number(req.query.maxPrice) : Infinity;
@@ -324,12 +322,8 @@ export const getAllProducts = asyncHandler(async (req, res) => {
       ]
     };
     
-    if (req.query.minPrice) {
-      nonVariationCondition.$and[1].price.$gte = minPrice;
-    }
-    if (req.query.maxPrice) {
-      nonVariationCondition.$and[1].price.$lte = maxPrice;
-    }
+    if (req.query.minPrice) nonVariationCondition.$and[1].price.$gte = minPrice;
+    if (req.query.maxPrice) nonVariationCondition.$and[1].price.$lte = maxPrice;
     
     // For products with variations
     const variationCondition = {
@@ -340,111 +334,58 @@ export const getAllProducts = asyncHandler(async (req, res) => {
     };
     
     const elemMatchCondition = {};
-    if (req.query.minPrice) {
-      elemMatchCondition.price = { $gte: minPrice };
-    }
+    if (req.query.minPrice) elemMatchCondition.price = { $gte: minPrice };
     if (req.query.maxPrice) {
-      if (elemMatchCondition.price) {
-        elemMatchCondition.price.$lte = maxPrice;
-      } else {
-        elemMatchCondition.price = { $lte: maxPrice };
-      }
+      if (elemMatchCondition.price) elemMatchCondition.price.$lte = maxPrice;
+      else elemMatchCondition.price = { $lte: maxPrice };
     }
     
     variationCondition.$and[1].variations.$elemMatch = elemMatchCondition;
     
-    priceConditions = [nonVariationCondition, variationCondition];
+    // Either meet non-variation price OR variation price
+    complexConditions.push({ $or: [nonVariationCondition, variationCondition] });
   }
 
   // Stock status filter
-  let stockConditions = null;
   if (req.query.inStock !== undefined) {
     const inStock = req.query.inStock === "true";
+    let stockCondition;
     
     if (inStock) {
-      stockConditions = [
-        // Products without variations
-        {
-          $and: [
-            { hasVariations: false },
-            { stock: { $gt: 0 } }
-          ]
-        },
-        // Products with variations
-        {
-          $and: [
-            { hasVariations: true },
-            { "variations.stock": { $gt: 0 } }
-          ]
-        }
-      ];
+      stockCondition = {
+        $or: [
+          { $and: [{ hasVariations: false }, { stock: { $gt: 0 } }] },
+          { $and: [{ hasVariations: true }, { "variations.stock": { $gt: 0 } }] }
+        ]
+      };
     } else {
-      stockConditions = [
-        // Products without variations
-        {
-          $and: [
-            { hasVariations: false },
-            { stock: { $lte: 0 } }
-          ]
-        },
-        // Products with variations
-        {
-          $and: [
-            { hasVariations: true },
-            { "variations.stock": { $lte: 0 } }
-          ]
-        }
-      ];
+      stockCondition = {
+        $or: [
+          { $and: [{ hasVariations: false }, { stock: { $lte: 0 } }] },
+          { $and: [{ hasVariations: true }, { "variations.stock": { $lte: 0 } }] }
+        ]
+      };
     }
+    complexConditions.push(stockCondition);
+  }
+  
+  // Add complex conditions to matchStage
+  if (complexConditions.length > 0) {
+    matchStage.$and = complexConditions;
   }
 
-  // Combine all conditions
-  const allConditions = [];
-  
-  // Add category filters if they exist
-  if (Object.keys(filter).length > 1 || (Object.keys(filter).length === 1 && !filter.isDeleted)) {
-    // Exclude isDeleted from allConditions if it's the only filter
-    const filterCopy = { ...filter };
-    if (filterCopy.isDeleted && Object.keys(filterCopy).length === 1) {
-      // Don't add isDeleted alone
-    } else {
-      allConditions.push(filterCopy);
-    }
-  }
-  
-  // Add price conditions if they exist
-  if (priceConditions) {
-    allConditions.push({ $or: priceConditions });
-  }
-  
-  // Add stock conditions if they exist
-  if (stockConditions) {
-    allConditions.push({ $or: stockConditions });
-  }
-
-  // Build final filter
-  let finalFilter = { isDeleted: false }; // Always include isDeleted
-  
-  if (allConditions.length === 1) {
-    finalFilter = { ...finalFilter, ...allConditions[0] };
-  } else if (allConditions.length > 1) {
-    finalFilter.$and = allConditions;
-    // Add isDeleted to AND conditions
-    finalFilter.$and.unshift({ isDeleted: false });
-  }
-
-  console.log("Final filter object:", JSON.stringify(finalFilter, null, 2));
+  // console.log("Final match stage:", JSON.stringify(matchStage, null, 2));
 
   // Execute count query first
-  const total = await Product.countDocuments(finalFilter);
+  const total = await Product.countDocuments(matchStage);
 
-  // Handle sorting with aggregation pipeline
+  // Handle sorting
   let aggregatePipeline = [];
   
-  // Add match stage with final filter
-  aggregatePipeline.push({ $match: finalFilter });
+  // Add match stage
+  aggregatePipeline.push({ $match: matchStage });
   
-  // Add lookup for categories
+  // Add lookups
   aggregatePipeline.push(
     {
       $lookup: {
@@ -470,30 +411,14 @@ export const getAllProducts = asyncHandler(async (req, res) => {
         as: "childSubCategory_id"
       }
     },
-    {
-      $unwind: {
-        path: "$category_id",
-        preserveNullAndEmptyArrays: true
-      }
-    },
-    {
-      $unwind: {
-        path: "$subCategory_id",
-        preserveNullAndEmptyArrays: true
-      }
-    },
-    {
-      $unwind: {
-        path: "$childSubCategory_id",
-        preserveNullAndEmptyArrays: true
-      }
-    }
+    { $unwind: { path: "$category_id", preserveNullAndEmptyArrays: true } },
+    { $unwind: { path: "$subCategory_id", preserveNullAndEmptyArrays: true } },
+    { $unwind: { path: "$childSubCategory_id", preserveNullAndEmptyArrays: true } }
   );
   
-  // Add calculated price field for sorting
+  // Add computed fields for sorting
   aggregatePipeline.push({
     $addFields: {
-      // Calculate effective price for sorting and display
       effectivePrice: {
         $cond: {
           if: { 
@@ -502,41 +427,23 @@ export const getAllProducts = asyncHandler(async (req, res) => {
               { $gt: [{ $size: "$variations" }, 0] }
             ] 
           },
-          then: {
-            $min: "$variations.price"
-          },
+          then: { $min: "$variations.price" },
           else: "$price"
         }
       },
-      // Ensure rating exists
-      effectiveRating: {
-        $ifNull: ["$rating", 0]
-      }
+      effectiveRating: { $ifNull: ["$rating", 0] }
     }
   });
 
-  // Apply sorting based on sort parameter
+  // Apply sorting
   switch (req.query.sort) {
-    case "oldest":
-      aggregatePipeline.push({ $sort: { createdAt: 1 } });
-      break;
-    case "price_low":
-      aggregatePipeline.push({ $sort: { effectivePrice: 1 } });
-      break;
-    case "price_high":
-      aggregatePipeline.push({ $sort: { effectivePrice: -1 } });
-      break;
-    case "name_asc":
-      aggregatePipeline.push({ $sort: { name: 1 } });
-      break;
-    case "name_desc":
-      aggregatePipeline.push({ $sort: { name: -1 } });
-      break;
-    case "rating":
-      aggregatePipeline.push({ $sort: { effectiveRating: -1 } });
-      break;
-    default: // "newest"
-      aggregatePipeline.push({ $sort: { createdAt: -1 } });
+    case "oldest": aggregatePipeline.push({ $sort: { createdAt: 1 } }); break;
+    case "price_low": aggregatePipeline.push({ $sort: { effectivePrice: 1 } }); break;
+    case "price_high": aggregatePipeline.push({ $sort: { effectivePrice: -1 } }); break;
+    case "name_asc": aggregatePipeline.push({ $sort: { name: 1 } }); break;
+    case "name_desc": aggregatePipeline.push({ $sort: { name: -1 } }); break;
+    case "rating": aggregatePipeline.push({ $sort: { effectiveRating: -1 } }); break;
+    default: aggregatePipeline.push({ $sort: { createdAt: -1 } });
   }
 
   // Add pagination
@@ -547,8 +454,6 @@ export const getAllProducts = asyncHandler(async (req, res) => {
 
   // Execute aggregate query
   const products = await Product.aggregate(aggregatePipeline);
-
-  console.log(`Found ${products.length} products out of ${total}`);
 
   res.json(
     new ApiResponse(
