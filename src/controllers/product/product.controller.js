@@ -247,7 +247,7 @@ export const updateProductInCategory = asyncHandler(async (req, res) => {
 
 export const getAllProducts = asyncHandler(async (req, res) => {
   const page = parseInt(req.query.page, 10) || 1;
-  const limit = parseInt(req.query.limit, 10) || 20;
+  const limit = parseInt(req.query.limit, 10) || 24;
   const skip = (page - 1) * limit;
 
   const { ObjectId } = mongoose.Types;
@@ -484,14 +484,14 @@ export const getFilteredProducts = asyncHandler(async (req, res) => {
       type,
       usage,
       page = 1,
-      limit = 10,
+      limit = 24,
       sortBy = "popularity", // Add sortBy parameter
       brands, // Array of brands
       types, // Array of types
       species, // Array of species
     } = req.query;
 
-    const match = { isDeleted: false, status: true };
+    const match = { isDeleted: false };
 
     if (search) {
       match.$or = [
@@ -524,26 +524,25 @@ export const getFilteredProducts = asyncHandler(async (req, res) => {
       : null;
     if (childSubCategory) match.childSubCategory_id = childSubCategory._id;
 
-    // Price filter
+    // Price filter logic separated
+    let priceMatch = {};
     if (minPrice || maxPrice) {
-      match.$or = [
+      priceMatch.$or = [
         {
-          $and: [{ hasVariations: false }, { discountPrice: {} }],
+          $and: [{ hasVariations: false }, { price: {} }],
         },
         {
-          $and: [{ hasVariations: true }, { "variations.discountPrice": {} }],
+          $and: [{ hasVariations: true }, { "variations.price": {} }],
         },
       ];
 
       if (minPrice) {
-        match.$or[0].$and[1].discountPrice.$gte = Number(minPrice);
-        match.$or[1].$and[1]["variations.discountPrice"].$gte =
-          Number(minPrice);
+        priceMatch.$or[0].$and[1].price.$gte = Number(minPrice);
+        priceMatch.$or[1].$and[1]["variations.price"].$gte = Number(minPrice);
       }
       if (maxPrice) {
-        match.$or[0].$and[1].discountPrice.$lte = Number(maxPrice);
-        match.$or[1].$and[1]["variations.discountPrice"].$lte =
-          Number(maxPrice);
+        priceMatch.$or[0].$and[1].price.$lte = Number(maxPrice);
+        priceMatch.$or[1].$and[1]["variations.price"].$lte = Number(maxPrice);
       }
     }
 
@@ -600,11 +599,20 @@ export const getFilteredProducts = asyncHandler(async (req, res) => {
       { $match: match },
       {
         $facet: {
-          products: [sortStage, { $skip: skip }, { $limit: Number(limit) }],
+          products: [
+            { $match: priceMatch }, 
+            sortStage, 
+            { $skip: skip }, 
+            { $limit: Number(limit) }
+          ],
 
-          totalCount: [{ $count: "count" }],
+          totalCount: [
+            { $match: priceMatch }, 
+            { $count: "count" }
+          ],
 
           filterCounts: [
+            // No priceMatch here to get global stats for the category
             {
               $group: {
                 _id: null,
@@ -612,13 +620,14 @@ export const getFilteredProducts = asyncHandler(async (req, res) => {
                 types: { $addToSet: "$filterAttributes.type" },
                 usages: { $addToSet: "$filterAttributes.usage" },
                 species: { $addToSet: "$filterAttributes.species" },
-                minPrice: { $min: "$discountPrice" },
-                maxPrice: { $max: "$discountPrice" },
+                minPrice: { $min: "$price" },
+                maxPrice: { $max: "$price" },
               },
             },
           ],
 
           brandBreakdown: [
+            { $match: priceMatch },
             {
               $group: {
                 _id: "$filterAttributes.brand",
@@ -628,6 +637,7 @@ export const getFilteredProducts = asyncHandler(async (req, res) => {
           ],
 
           speciesBreakdown: [
+            { $match: priceMatch },
             {
               $group: {
                 _id: "$filterAttributes.species",
@@ -741,7 +751,6 @@ export const getRelatedProducts = asyncHandler(async (req, res) => {
           : []),
       ],
       isDeleted: false,
-      status: true,
     })
       .limit(limit)
       .populate("category_id subCategory_id")
@@ -820,14 +829,13 @@ export const getProductsByFlag = asyncHandler(async (req, res) => {
   let products;
   if (flag === "all") {
     products = await Product.aggregate([
-      { $match: { isDeleted: false, status: true } },
+      { $match: { isDeleted: false } },
       { $sample: { size: 12 } },
     ]);
   } else {
     const filter = {
       [flag]: true,
       isDeleted: false,
-      status: true,
     };
     products = await Product.find(filter);
   }
