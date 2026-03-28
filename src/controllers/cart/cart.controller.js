@@ -5,9 +5,9 @@ import ApiResponse from "../../utils/ApiResponse.js";
 import { asyncHandler } from "../../utils/asyncHandler.js";
 
 export const getCart = asyncHandler(async (req, res) => {
-  const cart = await Cart.findOne({ user_id: req.user._id }).populate(
-    "items.product_id"
-  );
+  const cart = await Cart.findOne({ user_id: req.user._id })
+    .populate("items.product_id")
+    .lean();
   res.json(new ApiResponse(200, cart || { items: [] }, "Fetched cart"));
 });
 

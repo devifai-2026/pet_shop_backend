@@ -1,8 +1,12 @@
 import express from "express";
 import cors from "cors";
+import compression from "compression";
 
 // Initialize Express app
 const app = express();
+
+// Gzip compress all responses — significantly reduces JSON payload sizes
+app.use(compression());
 
 // Middleware configuration
 const corsOptions = {

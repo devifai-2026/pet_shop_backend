@@ -111,8 +111,13 @@ export const createOrder = asyncHandler(async (req, res) => {
     const orderItems = [];
     const outOfStockItems = [];
 
+    // Batch-fetch all products in one query instead of N individual queries
+    const productIds = cart.items.map((item) => item.product_id);
+    const products = await Product.find({ _id: { $in: productIds } }).session(session).lean();
+    const productMap = new Map(products.map((p) => [p._id.toString(), p]));
+
     for (const item of cart.items) {
-      const product = await Product.findById(item.product_id).session(session);
+      const product = productMap.get(item.product_id.toString());
 
       if (!product) {
         outOfStockItems.push(item.product_id);
@@ -128,8 +133,7 @@ export const createOrder = asyncHandler(async (req, res) => {
         continue;
       }
 
-      const { _id, createdAt, updatedAt, __v, ...cleanProduct } =
-        product.toObject();
+      const { _id, createdAt, updatedAt, __v, ...cleanProduct } = product;
       const subtotal = product.price * item.quantity;
 
       orderItems.push({
@@ -184,14 +188,16 @@ export const createOrder = asyncHandler(async (req, res) => {
         couponUsed: couponCode ? { code: couponCode, discount: 10 } : null,
       });
 
-      // Reserve product stock
-      for (const item of orderItems) {
-        await Product.findByIdAndUpdate(
-          item.product_id,
-          { $inc: { stock: -item.quantity } },
-          { session }
-        );
-      }
+      // Reserve product stock — single bulk write instead of N individual updates
+      await Product.bulkWrite(
+        orderItems.map((item) => ({
+          updateOne: {
+            filter: { _id: item.product_id },
+            update: { $inc: { stock: -item.quantity } },
+          },
+        })),
+        { session }
+      );
 
       // Save the order within the transaction
       await orderDoc.save({ session });
@@ -265,13 +271,14 @@ export const createOrder = asyncHandler(async (req, res) => {
         subject: `Your Fun4Pet Order #${orderDoc.orderNumber} has been placed`,
       });
 
-      await sendEmail({
+      // Fire-and-forget — do not block the HTTP response waiting for email delivery
+      sendEmail({
         to: req.user.email,
         subject: `Your Fun4Pet Order #${orderDoc.orderNumber} has been placed`,
         html: emailHtml,
-      });
+      }).catch((err) => console.error("Order confirmation email failed:", err));
 
-      session.endSession(); // session end 
+      session.endSession(); // session end
       return res
         .status(201)
         .json(new ApiResponse(201, orderDoc, "Order created successfully"));
@@ -512,11 +519,11 @@ export const updateOrderStatus = asyncHandler(async (req, res) => {
         subject: `Update on Your Order #${order.orderNumber}`,
       });
 
-      await sendEmail({
+      sendEmail({
         to: order.user_id.email,
         subject: `Your Order #${order.orderNumber} Status Update`,
         html: emailHtml,
-      });
+      }).catch((err) => console.error("Status update email failed:", err));
     }
 
     return res.json(
@@ -603,11 +610,11 @@ export const updatePaymentStatus = asyncHandler(async (req, res) => {
         subject: `Payment Update for Order #${order.orderNumber}`,
       });
 
-      await sendEmail({
+      sendEmail({
         to: order.user_id.email,
         subject: `Payment Update for Order #${order.orderNumber}`,
         html: emailHtml,
-      });
+      }).catch((err) => console.error("Payment status email failed:", err));
     }
 
     return res.json(

@@ -54,27 +54,25 @@ export const initiateEasebuzzPayment = async ({
       .padStart(4, "0");
     const tempOrderNumber = `TEMP-${timestamp}-${randomNum}`;
 
-    // 4. Calculate total amount
+    // 4. Calculate total amount — batch fetch all products in one query
     let totalAmount = 0;
-    const productStockChecks = [];
+    const cartProductIds = existingCart.items.map((i) => i.product_id);
+    const cartProducts = await Product.find({ _id: { $in: cartProductIds } })
+      .session(session)
+      .lean();
+    const cartProductMap = new Map(cartProducts.map((p) => [p._id.toString(), p]));
 
+    const productStockChecks = [];
     for (const item of existingCart.items) {
-      const product = await Product.findById(item.product_id).session(session);
+      const product = cartProductMap.get(item.product_id.toString());
       if (!product) {
         throw new Error(`Product ${item.product_id} not found`);
       }
       if (product.stock < item.quantity) {
         throw new Error(`Product ${item.product_id} is out of stock`);
       }
-
-      const subtotal = product.price * item.quantity;
-      totalAmount += subtotal;
-
-      // Prepare stock reservation for later
-      productStockChecks.push({
-        productId: item.product_id,
-        quantity: item.quantity,
-      });
+      totalAmount += product.price * item.quantity;
+      productStockChecks.push({ productId: item.product_id, quantity: item.quantity });
     }
 
     // Add tax and shipping
@@ -82,14 +80,16 @@ export const initiateEasebuzzPayment = async ({
     const shippingFee = totalAmount < 100 ? 5 : 0;
     totalAmount += taxAmount + shippingFee;
 
-    // 5. Reserve product stock temporarily
-    for (const item of productStockChecks) {
-      await Product.findByIdAndUpdate(
-        item.productId,
-        { $inc: { stock: -item.quantity } },
-        { session }
-      );
-    }
+    // 5. Reserve product stock temporarily — bulk write instead of N updates
+    await Product.bulkWrite(
+      productStockChecks.map((item) => ({
+        updateOne: {
+          filter: { _id: item.productId },
+          update: { $inc: { stock: -item.quantity } },
+        },
+      })),
+      { session }
+    );
 
     // 6. Prepare payment request - FIXED: Proper UDF2 encoding and phone validation
     const phone = shippingAddress.phone || user.phone || "0000000000";
@@ -180,14 +180,16 @@ export const initiateEasebuzzPayment = async ({
     // console.log("Payment Gateway Response:", response.data);
 
     if (!response.data || response.data.status !== 1 || !response.data.data) {
-      // Restore product stock if payment initiation fails
-      for (const item of productStockChecks) {
-        await Product.findByIdAndUpdate(
-          item.productId,
-          { $inc: { stock: item.quantity } },
-          { session }
-        );
-      }
+      // Restore product stock if payment initiation fails — bulk write
+      await Product.bulkWrite(
+        productStockChecks.map((item) => ({
+          updateOne: {
+            filter: { _id: item.productId },
+            update: { $inc: { stock: item.quantity } },
+          },
+        })),
+        { session }
+      );
 
       const errorMsg =
         response.data?.error_desc ||
@@ -380,14 +382,16 @@ export const handleEasebuzzCallback = async (callbackData) => {
           user_id: callbackData.udf1,
         }).session(session);
 
-        if (cart) {
-          for (const item of cart.items) {
-            await Product.findByIdAndUpdate(
-              item.product_id,
-              { $inc: { stock: item.quantity } },
-              { session }
-            );
-          }
+        if (cart && cart.items.length > 0) {
+          await Product.bulkWrite(
+            cart.items.map((item) => ({
+              updateOne: {
+                filter: { _id: item.product_id },
+                update: { $inc: { stock: item.quantity } },
+              },
+            })),
+            { session }
+          );
         }
       }
 
@@ -425,18 +429,23 @@ async function completeOrderAfterPayment(
   shippingAddress,
   session
 ) {
-  // 1. Calculate order amounts
+  // 1. Calculate order amounts — batch fetch all products in one query
   let totalAmount = 0;
   const orderItems = [];
 
+  const completeProductIds = cart.items.map((i) => i.product_id);
+  const completeProducts = await Product.find({ _id: { $in: completeProductIds } })
+    .session(session)
+    .lean();
+  const completeProductMap = new Map(completeProducts.map((p) => [p._id.toString(), p]));
+
   for (const item of cart.items) {
-    const product = await Product.findById(item.product_id).session(session);
+    const product = completeProductMap.get(item.product_id.toString());
     if (!product) {
       throw new Error(`Product ${item.product_id} not found`);
     }
 
-    const { _id, createdAt, updatedAt, __v, ...cleanProduct } =
-      product.toObject();
+    const { _id, createdAt, updatedAt, __v, ...cleanProduct } = product;
     const subtotal = product.price * item.quantity;
 
     orderItems.push({
@@ -551,11 +560,12 @@ async function completeOrderAfterPayment(
       subject: `Your Fun4Pet Order #${order.orderNumber} Confirmation`,
     });
 
-    await sendEmail({
+    // Fire-and-forget — don't block order completion waiting for email
+    sendEmail({
       to: orderUser.email,
       subject: `Your Fun4Pet Order #${order.orderNumber} Confirmation`,
       html: emailHtml,
-    });
+    }).catch((err) => console.error("Online order confirmation email failed:", err));
   }
 
   return { order };

@@ -100,25 +100,22 @@ export const createAccount = asyncHandler(async (req, res) => {
       <p>Happy pet parenting!</p>
     `;
 
-    // Send welcome email (don't await to not block response)
-    try {
-      const emailHtml = await generateEmailHtml({
-        customerName: user.name,
-        emailContent: emailContent,
-        ctaText: "Start Shopping",
-        ctaLink: "#", // Replace with actual link
-        subject: `Welcome to Fun4Pet, ${user.name}!`,
-      });
-
-      await sendEmail({
+    // Fire-and-forget welcome email — do not block the registration response
+    generateEmailHtml({
+      customerName: user.name,
+      emailContent: emailContent,
+      ctaText: "Start Shopping",
+      ctaLink: "#",
+      subject: `Welcome to Fun4Pet, ${user.name}!`,
+    }).then((emailHtml) =>
+      sendEmail({
         to: user.email,
         subject: `Welcome to Fun4Pet, ${user.name}!`,
         html: emailHtml,
-      });
-    } catch (emailError) {
+      })
+    ).catch((emailError) => {
       console.error("Failed to send welcome email:", emailError);
-      // Continue even if email fails
-    }
+    });
 
     // Return success response
     return res.status(201).json(

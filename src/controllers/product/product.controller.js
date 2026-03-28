@@ -802,7 +802,7 @@ export const deleteProduct = asyncHandler(async (req, res) => {
 
 // Get products by specific flags like bestSeller, onSale, popular
 export const getProductsByFlag = asyncHandler(async (req, res) => {
-  const { flag } = req.query;
+  const { flag, page = 1, limit = 8 } = req.query;
   const validFlags = ["bestSeller", "onSale", "popular", "all"];
 
   if (!flag || !validFlags.includes(flag)) {
@@ -817,20 +817,42 @@ export const getProductsByFlag = asyncHandler(async (req, res) => {
       );
   }
 
-  let products;
+  const pageNum = Math.max(1, parseInt(page, 10) || 1);
+  const limitNum = Math.min(50, Math.max(1, parseInt(limit, 10) || 8));
+  const skip = (pageNum - 1) * limitNum;
+
+  let products, total;
+
   if (flag === "all") {
+    const matchStage = { isDeleted: false, status: true };
+    total = await Product.countDocuments(matchStage);
     products = await Product.aggregate([
-      { $match: { isDeleted: false, status: true } },
-      { $sample: { size: 12 } },
+      { $match: matchStage },
+      { $sort: { createdAt: -1 } },
+      { $skip: skip },
+      { $limit: limitNum },
     ]);
   } else {
-    const filter = {
-      [flag]: true,
-      isDeleted: false,
-      status: true,
-    };
-    products = await Product.find(filter);
+    const filter = { [flag]: true, isDeleted: false, status: true };
+    total = await Product.countDocuments(filter);
+    products = await Product.find(filter)
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
   }
 
-  res.json(new ApiResponse(200, products, `Fetched ${flag} products`));
+  res.json(
+    new ApiResponse(
+      200,
+      {
+        products,
+        total,
+        page: pageNum,
+        pages: Math.ceil(total / limitNum),
+        limit: limitNum,
+      },
+      `Fetched ${flag} products`
+    )
+  );
 });
